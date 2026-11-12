@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       # GitHub-hosted Windows runners have MSYS2 pre-installed, and this official
       # community action configures the UCRT64 shell, updates pacman, and installs packages.

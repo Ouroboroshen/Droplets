@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Droplet logo: a water drop on a dark rounded square. Drawn for this project (tools: make_logo.py). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#173372"/>
+      <stop offset="1" stop-color="#0b1633"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#9beeff"/>
+      <stop offset="0.55" stop-color="#3fa9ff"/>
+      <stop offset="1" stop-color="#1b5fe0"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <path d="M256,72 C256,72 122,238 122,320 A134,134 0 0,0 390,320 C390,238 256,72 256,72Z" fill="#050b1c" fill-opacity="0.4" transform="translate(8,12)"/>
+  <path d="M256,72 C256,72 122,238 122,320 A134,134 0 0,0 390,320 C390,238 256,72 256,72Z" fill="url(#water)"/>
+  <path d="M184,336 C176,288 196,236 232,190" fill="none" stroke="#ffffff" stroke-opacity="0.65"
+        stroke-width="24" stroke-linecap="round"/>
+  <circle cx="196" cy="378" r="13" fill="#ffffff" fill-opacity="0.65"/>
+</svg>

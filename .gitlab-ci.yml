@@ -1,0 +1,78 @@
+# Builds Droplet for Windows with MSYS2 (the UCRT64 environment, see MSYSTEM below), for every push
+# to the main branch, for tags, and when started by hand (Build > Pipelines > Run
+# pipeline). Each run uses the project's CI/CD compute minutes. ccache and the downloaded libraries
+# (.cache/cpm) are kept between runs, so a build after a small change takes a fraction of the first
+# one. The programs are kept for a week as the job's artifacts (Windows x86-64).
+# The job runs on GitLab.com's shared Windows runners (tag saas-windows-medium-amd64), which use
+# PowerShell as their shell. MSYS2 is installed with Chocolatey when the runner does not have it.
+# After the build, the programs are collected in dist/ together with the Qt plugins (windeployqt)
+# and every MSYS2 MinGW library (DLL) they need, so the artifacts start on a plain Windows machine
+# without MSYS2.
+# The server branch has a .gitlab-ci.yml of its own, for Reservoir.
+stages:
+  - build
+
+windows:
+  stage: build
+  tags:
+    - saas-windows-medium-amd64
+  timeout: 3h
+  variables:
+    MSYS2_ROOT: 'C:\msys64'
+    # Make bash.exe start as the MSYS2 UCRT64 shell, in the project directory. MSYS2 deprecated
+    # the MINGW64 environment that the README uses (2026-03-15) and has been removing packages from
+    # it: enet, libusb and vulkan-memory-allocator are no longer there. UCRT64 is the one MSYS2
+    # recommends.
+    MSYSTEM: UCRT64
+    CHERE_INVOKING: "1"
+    # Picked up by every cmake call without a -G option. Ninja, like the Linux job used, instead of
+    # the README's MSYS Makefiles: with Makefiles the shader step failed with "Failed to open file"
+    # when writing a generated header, and Ninja creates the folders of the files it generates.
+    CMAKE_GENERATOR: Ninja
+    CCACHE_MAXSIZE: "3G"
+  cache:
+    key: droplet-windows
+    paths:
+      - .ccache/
+      - .cache/cpm/
+  before_script:
+    # Install MSYS2 only if the runner does not already have it.
+    - >-
+      if (-not (Test-Path "$env:MSYS2_ROOT\usr\bin\bash.exe")) {
+      choco install msys2 -y --no-progress --params "/NoUpdate /InstallDir:$env:MSYS2_ROOT" }
+    # The first update replaces the MSYS2 core and then closes every MSYS2 process, including this
+    # bash, so its exit code is ignored here (in PowerShell, not in bash). The next command runs
+    # the rest of the update with the new core.
+    - >-
+      & "$env:MSYS2_ROOT\usr\bin\bash.exe" -lc 'pacman -Syuu --noconfirm'; $LASTEXITCODE = 0
+    # Install the tools and libraries from the README, from the UCRT64 repository, plus ccache, ninja
+    # and the ones only the README's Linux list has (ffmpeg, qt6-multimedia, libzip, spirv-*).
+    - >-
+      & "$env:MSYS2_ROOT\usr\bin\bash.exe" -lc 'pacman -Syuu --needed --noconfirm
+      git make autoconf libtool automake-wrapper jq patch
+      mingw-w64-ucrt-x86_64-{qt6-base,qt6-charts,qt6-tools,qt6-translations,qt6-svg,cmake,toolchain,clang,python-pip,openssl,vulkan-memory-allocator,vulkan-devel,glslang,boost,fmt,lz4,nlohmann-json,zlib,zstd,enet,opus,libusb,sdl3,ccache,ffmpeg,qt6-multimedia,libzip,spirv-tools,spirv-headers,ninja} ||
+      { echo Some packages were not found. Similar names in the MSYS2 repositories:;
+      for p in enet libusb vulkan-memory-allocator sdl3; do pacman -Ssq $p | grep ^mingw-w64-ucrt-x86_64-; done; exit 1; }'
+  script:
+    - >-
+      & "$env:MSYS2_ROOT\usr\bin\bash.exe" -lc 'export CCACHE_DIR=$(cygpath -m $CI_PROJECT_DIR)/.ccache CCACHE_BASEDIR=$(cygpath -m $CI_PROJECT_DIR) &&
+      cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_WERROR=OFF -DENABLE_WEB_SERVICE=OFF -DYUZU_TESTS=OFF
+      -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache &&
+      cmake --build build --parallel $(nproc) &&
+      ccache --show-stats'
+    # Collect the programs in dist/: windeployqt adds the Qt DLLs and plugins, then ldd lists the
+    # other MSYS2 MinGW libraries the programs and the plugins need, and those are copied as well.
+    - >-
+      & "$env:MSYS2_ROOT\usr\bin\bash.exe" -lc 'mkdir -p dist &&
+      cp build/bin/*.exe dist/ &&
+      $(command -v windeployqt6 || command -v windeployqt-qt6 || command -v windeployqt) dist/droplet.exe &&
+      ldd dist/*.exe dist/*.dll dist/*/*.dll 2>/dev/null | cut -d\  -f3 | grep /ucrt64/ | sort -u | xargs -r cp -n -t dist/'
+  artifacts:
+    name: "droplet-windows-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - dist/
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "web"

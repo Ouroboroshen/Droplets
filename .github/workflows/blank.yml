@@ -1,0 +1,99 @@
+name: Build Droplet (Windows)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  workflow_dispatch: # Allows manual runs from the GitHub Actions UI
+
+env:
+  MSYSTEM: UCRT64
+  CHERE_INVOKING: "1"
+  CMAKE_GENERATOR: Ninja
+  CCACHE_MAXSIZE: "3G"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 180 # 3 hours
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # GitHub-hosted Windows runners have MSYS2 pre-installed, and this official
+      # community action configures the UCRT64 shell, updates pacman, and installs packages.
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git make autoconf libtool automake-wrapper jq patch
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-charts
+            mingw-w64-ucrt-x86_64-qt6-tools
+            mingw-w64-ucrt-x86_64-qt6-translations
+            mingw-w64-ucrt-x86_64-qt6-svg
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-python-pip
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-vulkan-memory-allocator
+            mingw-w64-ucrt-x86_64-vulkan-devel
+            mingw-w64-ucrt-x86_64-glslang
+            mingw-w64-ucrt-x86_64-boost
+            mingw-w64-ucrt-x86_64-fmt
+            mingw-w64-ucrt-x86_64-lz4
+            mingw-w64-ucrt-x86_64-nlohmann-json
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-zstd
+            mingw-w64-ucrt-x86_64-enet
+            mingw-w64-ucrt-x86_64-opus
+            mingw-w64-ucrt-x86_64-libusb
+            mingw-w64-ucrt-x86_64-sdl3
+            mingw-w64-ucrt-x86_64-ccache
+            mingw-w64-ucrt-x86_64-ffmpeg
+            mingw-w64-ucrt-x86_64-qt6-multimedia
+            mingw-w64-ucrt-x86_64-libzip
+            mingw-w64-ucrt-x86_64-spirv-tools
+            mingw-w64-ucrt-x86_64-spirv-headers
+            mingw-w64-ucrt-x86_64-ninja
+
+      # Restores and saves .ccache and .cache/cpm across runs
+      - name: Cache ccache and CPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ccache
+            .cache/cpm
+          key: droplet-windows-${{ github.sha }}
+          restore-keys: |
+            droplet-windows-
+
+      - name: Configure and Build
+        shell: msys2 {0}
+        run: |
+          export CCACHE_DIR=$(cygpath -m "$GITHUB_WORKSPACE")/.ccache
+          export CCACHE_BASEDIR=$(cygpath -m "$GITHUB_WORKSPACE")
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_WERROR=OFF -DENABLE_WEB_SERVICE=OFF -DYUZU_TESTS=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build --parallel $(nproc)
+          ccache --show-stats
+
+      - name: Package binaries and DLLs
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist
+          cp build/bin/*.exe dist/
+          $(command -v windeployqt6 || command -v windeployqt-qt6 || command -v windeployqt) dist/droplet.exe
+          ldd dist/*.exe dist/*.dll dist/*/*.dll 2>/dev/null | cut -d\  -f3 | grep /ucrt64/ | sort -u | xargs -r cp -n -t dist/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: droplet-windows-${{ github.sha }}
+          path: dist/
+          retention-days: 7
